@@ -1,64 +1,116 @@
-## Проектируем ядро бизнес-логики
+# AI & API FinOps Platform
 
-авторизация Better-Auth + Redis + Postgres, защита маршрутов, рендер дашборда. Фундамент собран.
-оживляем шаблон реальными данными и архитектурой, чтобы превратить статическую витрину в полноценное рентабельное приложение на 3000–5000 строк кода.
+A cost, quota, and rate-limit monitoring platform for LLMs and external APIs (OpenAI, Anthropic, DeepSeek, Custom API). Built as a modular monolith powered by **Next.js 16**, **PostgreSQL 17**, **Drizzle ORM**, **Redis**, and **BullMQ**.
 
-Чтобы все элементы шаблона — 4 карточки с цифрами, интерактивный график за 7/30/90 дней, таблица с редактированием Target и Limit, назначение ответственного и выезжающая панель Drawer
+## System Architecture
 
-развернем архитектуру модульного монолита:
+The project is organized into isolated layers to ensure high throughput, end-to-end type safety, and straightforward scaling:
 
-• Модуль БД (shared/db/schema.ts): добавляем бизнес-таблицы (например, projects / streams, metrics_daily, events_log) с индексами для быстрой аналитики и связью с user.id.
-• Модуль аналитики и репозиториев (modules/analytics/):
-• Репозиторий с SQL-агрегацией в Drizzle (sum, count, расчет процентов роста за период) + кэширование тяжелых выборок в Redis (TTL 60s).
-• Серверные экшены (Server Actions) с Zod-валидацией для обновления колонок Target / Limit, смены статуса и добавления новых записей прямо из таблицы.
-• Публичный API-шлюз (app/api/v1/ingest/route.ts) + Воркер (worker.ts):
-• Реальный HTTP-эндпоинт с проверкой API-ключа, который принимает события/платежи/затраты, кладет их в очередь BullMQ (Redis), а фоновый воркер агрегирует их в PostgreSQL, мгновенно обновляя цифры на карточках и графиках.
-Какой именно бизнес-домен зашиваем в таблицы и воркер для этих карточек с цифрами — Агрегатор выручки и подписок (MRR / платежи), Трекер расходов на API и облака (с лимитами и алертами) или Аналитическую CRM-воронку? Выбирай, и я сразу дам готовую схему таблиц для shared/db/schema.ts и сидер для красивых начальных данных.
+- **Frontend & Rendering:** Built with **Next.js 16 (App Router)** using `output: "standalone"`, Partial Prerendering (PPR), `<Suspense>` streaming boundaries, and Zod-validated Server Actions.
+- **Authentication & Security:** Powered by **Better-Auth** with Redis `secondaryStorage` for low-latency session validation, strict user-scoped queries to prevent IDOR, and SHA-256 hashing for API keys.
+- **Analytics Module (`modules/finops/`):** Repository layer executing SQL aggregations via Drizzle (`sum`, `count`, grouping by date and environment) backed by Redis caching (`TTL 60s`).
+- **High-Throughput Ingestion & Queues (`app/api/v1/ingest` + `worker.ts`):** REST ingestion gateway with Redis key metadata caching, atomic Hard Limit enforcement (`429 Too Many Requests`), and asynchronous job processing via **BullMQ** in a dedicated `worker` container.
+- **Data Layer (`shared/db/`):** **PostgreSQL 17** with modular **Drizzle ORM** schemas, storing all monetary values as integer `microUsd` (`$1.00 = 1_000_000`) to eliminate floating-point precision issues.
 
-## Getting Started
+### Project Structure
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+├── app/
+│   ├── api/
+│   │   ├── auth/[...all]/     # Better-Auth endpoints
+│   │   └── v1/ingest/         # Token usage telemetry ingestion gateway
+│   ├── dashboard/             # Protected dashboard (KPIs, 7/30/90d charts, quota table)
+│   └── login/                 # Sign-in and registration page
+├── components/                # UI components (Shadcn UI, Recharts, TanStack Table)
+├── modules/finops/            # Analytics repository, Server Actions, and BullMQ queues
+├── shared/
+│   ├── auth/                  # Server and client Better-Auth configuration
+│   ├── db/                    # Postgres connection, modular Drizzle schemas, and seeder
+│   └── redis/                 # ioredis client singleton
+├── worker.ts                  # Background BullMQ queue worker
+├── Dockerfile                 # Multi-stage build for web and worker services
+├── docker-compose.prod.yml    # 6-service orchestration (postgres, redis, migrator, web, worker, caddy)
+└── deploy.sh                  # One-command deployment script
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local Development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. Infrastructure & Dependencies
 
-## Learn More
+Install dependencies and start local **PostgreSQL 17** and **Redis 7** containers:
 
-Полный сквозной конвейер: шлюз принял запрос с токеном, рассчитал стоимость в микродолларах ($0.0795) и поставил задачу в очередь Redis, откуда её подхватил фоновый воркер и обновил показатели в PostgreSQL.
+```bash
+npm install
+docker compose -f docker-compose.dev.yml up -d
+```
 
-Итог собранной архитектуры
+Create a `.env` file in the project root:
 
-• Фронтенд и рендеринг: Next.js 16 (App Router) в режиме output: "standalone" с Partial Prerendering (PPR), стримингом через <Suspense> и Server Actions с валидацией Zod.
-• Авторизация и безопасность: Better-Auth с хранением сессий в Redis (secondaryStorage), защитой от IDOR в запросах к БД и SHA-256 хешированием API-ключей.
-• Высоконагруженный приемник и очереди: REST-шлюз /api/v1/ingest с кэшированием метаданных ключа в Redis, атомарной блокировкой при превышении Hard Limit (429 Too Many Requests) и асинхронной обработкой через BullMQ в отдельном контейнере worker.
-• Хранение данных: PostgreSQL 17 с модульной схемой Drizzle ORM и хранением денежных сумм в целых микродолларах (microUsd).
-• Продакшен-инфраструктура: Multi-stage Dockerfile, оркестрация 6 сервисов (postgres, redis, migrator, web, worker, caddy) с учетом SELinux в Fedora и развертывание в одну команду через ./deploy.sh.
+```env
+DATABASE_URL=postgresql://dev:devpassword@localhost:5432/app_db
+REDIS_URL=redis://localhost:6379
+BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_SECRET=your_random_32_chars_secret_key
+```
 
-1. Проверь .gitignore: убедись, что .env.prod не попадает в индекс Git.
-2. Зафиксируй рабочую сборку в репозитории:bash
-   git add .
-   git commit -m "feat: complete AI FinOps platform with PPR dashboard, BullMQ worker, and Podman deployment"
+### 2. Database Setup
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Push the Drizzle schema to PostgreSQL and (after registering your first user via the UI) seed 90 days of sample telemetry:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run db:push
+npm run db:seed
+```
 
-## Deploy on Vercel
+### 3. Start Server & Worker
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Run the Next.js development server and the background queue worker in two separate terminals:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Terminal 1: Next.js Dev Server
+npm run dev
+
+# Terminal 2: BullMQ Background Worker
+npm run worker:dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## Production Deployment (Podman / Docker)
+
+The entire stack is packaged into a multi-stage container image and configured for one-command deployment (including automatic secret generation, Drizzle schema migrations, and SELinux volume labeling for Fedora/RHEL).
+
+### Clone & Deploy
+
+```bash
+git clone git@github.com:v-ain/ai-app.git
+cd ai-app
+chmod +x deploy.sh
+./deploy.sh
+```
+
+The script generates `.env.prod`, builds the images, and starts 6 services: `postgres`, `redis`, `migrator`, `web`, `worker`, and the `caddy` reverse proxy. Once running, the application is accessible at **`http://localhost:8080`**.
+
+---
+
+## Ingestion API Usage
+
+Create a new pipeline in the dashboard (**Add Pipeline**), copy the generated `sk-fin-...` secret key, and send token usage events:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/ingest \
+  -H "Authorization: Bearer sk-fin-your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "inputTokens": 15000,
+    "outputTokens": 4200
+  }'
+```
+
+- **`202 Accepted`** — Payload validated, cost calculated in micro-USD, and job queued in Redis (BullMQ).
+- **`429 Too Many Requests`** — Pipeline has reached or exceeded its configured **Hard Limit**.
