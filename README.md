@@ -37,7 +37,20 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
+Полный сквозной конвейер: шлюз принял запрос с токеном, рассчитал стоимость в микродолларах ($0.0795) и поставил задачу в очередь Redis, откуда её подхватил фоновый воркер и обновил показатели в PostgreSQL.
+
+Итог собранной архитектуры
+
+• Фронтенд и рендеринг: Next.js 16 (App Router) в режиме output: "standalone" с Partial Prerendering (PPR), стримингом через <Suspense> и Server Actions с валидацией Zod.
+• Авторизация и безопасность: Better-Auth с хранением сессий в Redis (secondaryStorage), защитой от IDOR в запросах к БД и SHA-256 хешированием API-ключей.
+• Высоконагруженный приемник и очереди: REST-шлюз /api/v1/ingest с кэшированием метаданных ключа в Redis, атомарной блокировкой при превышении Hard Limit (429 Too Many Requests) и асинхронной обработкой через BullMQ в отдельном контейнере worker.
+• Хранение данных: PostgreSQL 17 с модульной схемой Drizzle ORM и хранением денежных сумм в целых микродолларах (microUsd).
+• Продакшен-инфраструктура: Multi-stage Dockerfile, оркестрация 6 сервисов (postgres, redis, migrator, web, worker, caddy) с учетом SELinux в Fedora и развертывание в одну команду через ./deploy.sh.
+
+1. Проверь .gitignore: убедись, что .env.prod не попадает в индекс Git.
+2. Зафиксируй рабочую сборку в репозитории:bash
+   git add .
+   git commit -m "feat: complete AI FinOps platform with PPR dashboard, BullMQ worker, and Podman deployment"
 
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.

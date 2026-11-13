@@ -1,6 +1,14 @@
-"use client"
+"use client";
 
-import * as React from "react"
+import * as React from "react";
+
+import type { PipelineRowDTO } from "@/modules/finops/repository";
+import {
+  updatePipelineBudgetAction,
+  updatePipelineOwnerAction,
+  deletePipelineAction,
+} from "@/modules/finops/actions";
+
 import {
   closestCenter,
   DndContext,
@@ -11,15 +19,15 @@ import {
   useSensors,
   type DragEndEvent,
   type UniqueIdentifier,
-} from "@dnd-kit/core"
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
+} from "@dnd-kit/core";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import {
   arrayMove,
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
-} from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   columnFilteringFeature,
   columnVisibilityFeature,
@@ -37,21 +45,21 @@ import {
   type ColumnVisibilityState,
   type Row,
   type SortingState,
-} from "@tanstack/react-table"
-import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
-import { toast } from "sonner"
-import { z } from "zod"
+} from "@tanstack/react-table";
+import { Area, AreaChart, CartesianGrid, XAxis } from "recharts";
+import { toast } from "sonner";
+import { z } from "zod";
 
-import { useIsMobile } from "@/hooks/use-mobile"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
-} from "@/components/ui/chart"
-import { Checkbox } from "@/components/ui/checkbox"
+} from "@/components/ui/chart";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Drawer,
   DrawerClose,
@@ -61,7 +69,7 @@ import {
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
-} from "@/components/ui/drawer"
+} from "@/components/ui/drawer";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -69,9 +77,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -79,8 +87,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -88,14 +96,25 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
-import { GripVerticalIcon, CircleCheckIcon, LoaderIcon, EllipsisVerticalIcon, Columns3Icon, ChevronDownIcon, PlusIcon, ChevronsLeftIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsRightIcon, TrendingUpIcon } from "lucide-react"
+  GripVerticalIcon,
+  CircleCheckIcon,
+  LoaderIcon,
+  EllipsisVerticalIcon,
+  Columns3Icon,
+  ChevronDownIcon,
+  PlusIcon,
+  ChevronsLeftIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronsRightIcon,
+  TrendingUpIcon,
+  AlertTriangleIcon,
+  BanIcon,
+} from "lucide-react";
+import { CreatePipelineDialog } from "./create-pipeline-dialog";
 
 // New in v9: declare the features this table uses — anything you don't
 // register is tree-shaken out of the bundle.
@@ -108,28 +127,38 @@ const features = tableFeatures({
   filteredRowModel: createFilteredRowModel(),
   paginatedRowModel: createPaginatedRowModel(),
   sortedRowModel: createSortedRowModel(),
-})
+});
 
 const columnHelper = createColumnHelper<
   typeof features,
   z.infer<typeof schema>
->()
+>();
 
 export const schema = z.object({
-  id: z.number(),
-  header: z.string(),
-  type: z.string(),
+  id: z.string(),
+  name: z.string(),
+  provider: z.string(),
+  environment: z.string(),
   status: z.string(),
-  target: z.string(),
-  limit: z.string(),
-  reviewer: z.string(),
-})
+  apiKeyPrefix: z.string(),
+  targetUsd: z.number(),
+  limitUsd: z.number(),
+  spendUsd: z.number(),
+  ownerName: z.string(),
+});
+
+const TEAM_MEMBERS = [
+  "Alex Mercer",
+  "Elena Rostova",
+  "Marcus Vance",
+  "Dmitry Volkov",
+];
 
 // Create a separate component for the drag handle
-function DragHandle({ id }: { id: number }) {
+function DragHandle({ id }: { id: string }) {
   const { attributes, listeners } = useSortable({
     id,
-  })
+  });
   return (
     <Button
       {...attributes}
@@ -141,7 +170,7 @@ function DragHandle({ id }: { id: number }) {
       <GripVerticalIcon className="size-3 text-muted-foreground" />
       <span className="sr-only">Drag to reorder</span>
     </Button>
-  )
+  );
 }
 const columns = columnHelper.columns([
   columnHelper.display({
@@ -176,126 +205,189 @@ const columns = columnHelper.columns([
     enableSorting: false,
     enableHiding: false,
   }),
-  columnHelper.accessor("header", {
-    header: "Header",
-    cell: ({ row }) => {
-      return <TableCellViewer item={row.original} />
-    },
+  columnHelper.accessor("name", {
+    header: "Pipeline / Service",
+    cell: ({ row }) => (
+      <div className="flex flex-col">
+        <TableCellViewer item={row.original} />
+        <span className="font-mono text-xs text-muted-foreground">
+          {row.original.apiKeyPrefix}
+        </span>
+      </div>
+    ),
     enableHiding: false,
   }),
-  columnHelper.accessor("type", {
-    header: "Section Type",
+  columnHelper.accessor("provider", {
+    header: "Provider & Env",
     cell: ({ row }) => (
-      <div className="w-32">
+      <div className="flex items-center gap-1.5">
         <Badge variant="outline" className="px-1.5 text-muted-foreground">
-          {row.original.type}
+          {row.original.provider}
+        </Badge>
+        <Badge
+          variant={
+            row.original.environment === "production" ? "default" : "secondary"
+          }
+          className="px-1.5 text-[10px] uppercase"
+        >
+          {row.original.environment === "production" ? "prod" : "stg"}
         </Badge>
       </div>
     ),
   }),
   columnHelper.accessor("status", {
     header: "Status",
+    cell: ({ row }) => {
+      const status = row.original.status;
+      return (
+        <Badge variant="outline" className="gap-1.5 px-2 text-muted-foreground">
+          {status === "Active" && (
+            <CircleCheckIcon className="size-3.5 fill-green-500 text-background dark:fill-green-400" />
+          )}
+          {status === "Warning" && (
+            <AlertTriangleIcon className="size-3.5 text-amber-500" />
+          )}
+          {status === "Blocked" && (
+            <BanIcon className="size-3.5 text-destructive" />
+          )}
+          <span>{status}</span>
+        </Badge>
+      );
+    },
+  }),
+  columnHelper.accessor("spendUsd", {
+    header: () => <div className="w-full text-right">Spend ($)</div>,
     cell: ({ row }) => (
-      <Badge variant="outline" className="px-1.5 text-muted-foreground">
-        {row.original.status === "Done" ? (
-          <CircleCheckIcon className="fill-green-500 dark:fill-green-400" />
-        ) : (
-          <LoaderIcon
-          />
-        )}
-        {row.original.status}
-      </Badge>
+      <div className="text-right font-mono font-medium tabular-nums">
+        ${row.original.spendUsd.toFixed(2)}
+      </div>
     ),
   }),
-  columnHelper.accessor("target", {
-    header: () => <div className="w-full text-right">Target</div>,
+  columnHelper.accessor("targetUsd", {
+    header: () => <div className="w-full text-right">Target ($)</div>,
     cell: ({ row }) => (
       <form
         onSubmit={(e) => {
-          e.preventDefault()
-          toast.promise(new Promise((resolve) => setTimeout(resolve, 1000)), {
-            loading: `Saving ${row.original.header}`,
-            success: "Done",
-            error: "Error",
-          })
+          e.preventDefault();
+          const formData = new FormData(e.currentTarget);
+          const nextTarget = Number(formData.get("targetUsd"));
+          if (!Number.isFinite(nextTarget) || nextTarget <= 0) return;
+
+          toast.promise(
+            updatePipelineBudgetAction({
+              id: row.original.id,
+              targetUsd: nextTarget,
+              limitUsd: row.original.limitUsd,
+            }),
+            {
+              loading: `Обновляем Target для ${row.original.name}...`,
+              success: "Target сохранен",
+              error: "Ошибка сохранения Target",
+            },
+          );
         }}
       >
         <Label htmlFor={`${row.original.id}-target`} className="sr-only">
-          Target
+          Target ($)
         </Label>
         <Input
-          className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
-          defaultValue={row.original.target}
+          name="targetUsd"
+          type="number"
+          min={1}
+          step={1}
+          className="h-8 w-20 border-transparent bg-transparent text-right font-mono tabular-nums shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background"
+          defaultValue={row.original.targetUsd}
+          key={`${row.original.id}-target-${row.original.targetUsd}`}
           id={`${row.original.id}-target`}
         />
       </form>
     ),
   }),
-  columnHelper.accessor("limit", {
-    header: () => <div className="w-full text-right">Limit</div>,
+  columnHelper.accessor("limitUsd", {
+    header: () => <div className="w-full text-right">Hard Limit ($)</div>,
     cell: ({ row }) => (
       <form
         onSubmit={(e) => {
-          e.preventDefault()
-          toast.promise(new Promise((resolve) => setTimeout(resolve, 1000)), {
-            loading: `Saving ${row.original.header}`,
-            success: "Done",
-            error: "Error",
-          })
+          e.preventDefault();
+          const formData = new FormData(e.currentTarget);
+          const nextLimit = Number(formData.get("limitUsd"));
+          if (!Number.isFinite(nextLimit) || nextLimit <= 0) return;
+
+          toast.promise(
+            updatePipelineBudgetAction({
+              id: row.original.id,
+              targetUsd: row.original.targetUsd,
+              limitUsd: nextLimit,
+            }),
+            {
+              loading: `Обновляем Hard Limit для ${row.original.name}...`,
+              success: "Hard Limit сохранен",
+              error: "Ошибка сохранения Limit",
+            },
+          );
         }}
       >
         <Label htmlFor={`${row.original.id}-limit`} className="sr-only">
-          Limit
+          Hard Limit ($)
         </Label>
         <Input
-          className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
-          defaultValue={row.original.limit}
+          name="limitUsd"
+          type="number"
+          min={1}
+          step={1}
+          className="h-8 w-20 border-transparent bg-transparent text-right font-mono tabular-nums shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background"
+          defaultValue={row.original.limitUsd}
+          key={`${row.original.id}-limit-${row.original.limitUsd}`}
           id={`${row.original.id}-limit`}
         />
       </form>
     ),
   }),
-  columnHelper.accessor("reviewer", {
-    header: "Reviewer",
-    cell: ({ row }) => {
-      const isAssigned = row.original.reviewer !== "Assign reviewer"
-      if (isAssigned) {
-        return row.original.reviewer
-      }
-      return (
-        <>
-          <Label htmlFor={`${row.original.id}-reviewer`} className="sr-only">
-            Reviewer
-          </Label>
-          <Select
-            items={[
-              { label: "Eddie Lake", value: "Eddie Lake" },
-              { label: "Jamik Tashpulatov", value: "Jamik Tashpulatov" },
-            ]}
+  columnHelper.accessor("ownerName", {
+    header: "Owner",
+    cell: ({ row }) => (
+      <>
+        <Label htmlFor={`${row.original.id}-owner`} className="sr-only">
+          Owner
+        </Label>
+        <Select
+          value={row.original.ownerName}
+          onValueChange={(value) => {
+            if (!value || value === row.original.ownerName) return;
+            toast.promise(updatePipelineOwnerAction(row.original.id, value), {
+              loading: "Назначаем ответственного...",
+              success: `Ответственный: ${value}`,
+              error: "Ошибка назначения",
+            });
+          }}
+          items={TEAM_MEMBERS.map((member) => ({
+            label: member,
+            value: member,
+          }))}
+        >
+          <SelectTrigger
+            className="w-40 **:data-[slot=select-value]:block **:data-[slot=select-value]:truncate"
+            size="sm"
+            id={`${row.original.id}-owner`}
           >
-            <SelectTrigger
-              className="w-38 **:data-[slot=select-value]:block **:data-[slot=select-value]:truncate"
-              size="sm"
-              id={`${row.original.id}-reviewer`}
-            >
-              <SelectValue placeholder="Assign reviewer" />
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectGroup>
-                <SelectItem value="Eddie Lake">Eddie Lake</SelectItem>
-                <SelectItem value="Jamik Tashpulatov">
-                  Jamik Tashpulatov
+            <SelectValue placeholder="Assign owner" />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectGroup>
+              {TEAM_MEMBERS.map((member) => (
+                <SelectItem key={member} value={member}>
+                  {member}
                 </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </>
-      )
-    },
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </>
+    ),
   }),
   columnHelper.display({
     id: "actions",
-    cell: () => (
+    cell: ({ row }) => (
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -306,29 +398,44 @@ const columns = columnHelper.columns([
             />
           }
         >
-          <EllipsisVerticalIcon
-          />
+          <EllipsisVerticalIcon />
           <span className="sr-only">Open menu</span>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-32">
-          <DropdownMenuItem>Edit</DropdownMenuItem>
-          <DropdownMenuItem>Make a copy</DropdownMenuItem>
-          <DropdownMenuItem>Favorite</DropdownMenuItem>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem
+            onClick={() => {
+              navigator.clipboard.writeText(row.original.id);
+              toast.success("Pipeline ID скопирован");
+            }}
+          >
+            Copy ID
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive">Delete</DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => {
+              toast.promise(deletePipelineAction(row.original.id), {
+                loading: `Удаляем ${row.original.name}...`,
+                success: "Пайплайн удален",
+                error: "Ошибка удаления",
+              });
+            }}
+          >
+            Delete
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     ),
   }),
-])
+]);
 function DraggableRow({
   row,
 }: {
-  row: Row<typeof features, z.infer<typeof schema>>
+  row: Row<typeof features, z.infer<typeof schema>>;
 }) {
   const { transform, transition, setNodeRef, isDragging } = useSortable({
     id: row.original.id,
-  })
+  });
   return (
     <TableRow
       data-state={row.getIsSelected() && "selected"}
@@ -346,35 +453,35 @@ function DraggableRow({
         </TableCell>
       ))}
     </TableRow>
-  )
+  );
 }
 export function DataTable({
   data: initialData,
 }: {
-  data: z.infer<typeof schema>[]
+  data: z.infer<typeof schema>[];
 }) {
-  const [data, setData] = React.useState(() => initialData)
-  const [rowSelection, setRowSelection] = React.useState({})
+  const [data, setData] = React.useState(() => initialData);
+  const [rowSelection, setRowSelection] = React.useState({});
   const [columnVisibility, setColumnVisibility] =
-    React.useState<ColumnVisibilityState>({})
+    React.useState<ColumnVisibilityState>({});
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
-  )
-  const [sorting, setSorting] = React.useState<SortingState>([])
+    [],
+  );
+  const [sorting, setSorting] = React.useState<SortingState>([]);
   const [pagination, setPagination] = React.useState({
     pageIndex: 0,
     pageSize: 10,
-  })
-  const sortableId = React.useId()
+  });
+  const sortableId = React.useId();
   const sensors = useSensors(
     useSensor(MouseSensor, {}),
     useSensor(TouchSensor, {}),
-    useSensor(KeyboardSensor, {})
-  )
+    useSensor(KeyboardSensor, {}),
+  );
   const dataIds = React.useMemo<UniqueIdentifier[]>(
     () => data?.map(({ id }) => id) || [],
-    [data]
-  )
+    [data],
+  );
   const table = useTable({
     features,
     data,
@@ -393,15 +500,15 @@ export function DataTable({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: setPagination,
-  })
+  });
   function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
+    const { active, over } = event;
     if (active && over && active.id !== over.id) {
       setData((data) => {
-        const oldIndex = dataIds.indexOf(active.id)
-        const newIndex = dataIds.indexOf(over.id)
-        return arrayMove(data, oldIndex, newIndex)
-      })
+        const oldIndex = dataIds.indexOf(active.id);
+        const newIndex = dataIds.indexOf(over.id);
+        return arrayMove(data, oldIndex, newIndex);
+      });
     }
   }
   return (
@@ -463,7 +570,7 @@ export function DataTable({
                 .filter(
                   (column) =>
                     typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
+                    column.getCanHide(),
                 )
                 .map((column) => {
                   return (
@@ -477,15 +584,11 @@ export function DataTable({
                     >
                       {column.id}
                     </DropdownMenuCheckboxItem>
-                  )
+                  );
                 })}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="sm">
-            <PlusIcon
-            />
-            <span className="hidden lg:inline">Add Section</span>
-          </Button>
+          <CreatePipelineDialog />
         </div>
       </div>
       <TabsContent
@@ -511,7 +614,7 @@ export function DataTable({
                             <FlexRender header={header} />
                           )}
                         </TableHead>
-                      )
+                      );
                     })}
                   </TableRow>
                 ))}
@@ -553,7 +656,7 @@ export function DataTable({
               <Select
                 value={`${table.state.pagination.pageSize}`}
                 onValueChange={(value) => {
-                  table.setPageSize(Number(value))
+                  table.setPageSize(Number(value));
                 }}
                 items={[10, 20, 30, 40, 50].map((pageSize) => ({
                   label: `${pageSize}`,
@@ -586,8 +689,7 @@ export function DataTable({
                 disabled={!table.getCanPreviousPage()}
               >
                 <span className="sr-only">Go to first page</span>
-                <ChevronsLeftIcon
-                />
+                <ChevronsLeftIcon />
               </Button>
               <Button
                 variant="outline"
@@ -597,8 +699,7 @@ export function DataTable({
                 disabled={!table.getCanPreviousPage()}
               >
                 <span className="sr-only">Go to previous page</span>
-                <ChevronLeftIcon
-                />
+                <ChevronLeftIcon />
               </Button>
               <Button
                 variant="outline"
@@ -608,8 +709,7 @@ export function DataTable({
                 disabled={!table.getCanNextPage()}
               >
                 <span className="sr-only">Go to next page</span>
-                <ChevronRightIcon
-                />
+                <ChevronRightIcon />
               </Button>
               <Button
                 variant="outline"
@@ -619,8 +719,7 @@ export function DataTable({
                 disabled={!table.getCanNextPage()}
               >
                 <span className="sr-only">Go to last page</span>
-                <ChevronsRightIcon
-                />
+                <ChevronsRightIcon />
               </Button>
             </div>
           </div>
@@ -642,7 +741,7 @@ export function DataTable({
         <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
       </TabsContent>
     </Tabs>
-  )
+  );
 }
 const chartData = [
   {
@@ -675,7 +774,7 @@ const chartData = [
     desktop: 214,
     mobile: 140,
   },
-]
+];
 const chartConfig = {
   desktop: {
     label: "Desktop",
@@ -685,26 +784,78 @@ const chartConfig = {
     label: "Mobile",
     color: "var(--primary)",
   },
-} satisfies ChartConfig
+} satisfies ChartConfig;
+
 function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile();
+  const [targetUsd, setTargetUsd] = React.useState(String(item.targetUsd));
+  const [limitUsd, setLimitUsd] = React.useState(String(item.limitUsd));
+  const [ownerName, setOwnerName] = React.useState(item.ownerName);
+  const [saving, setSaving] = React.useState(false);
+
+  // Синхронизируем локальный стейт формы при обновлении данных с сервера
+  React.useEffect(() => {
+    setTargetUsd(String(item.targetUsd));
+    setLimitUsd(String(item.limitUsd));
+    setOwnerName(item.ownerName);
+  }, [item.targetUsd, item.limitUsd, item.ownerName]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    const nextTarget = Number(targetUsd);
+    const nextLimit = Number(limitUsd);
+
+    if (!Number.isFinite(nextTarget) || nextTarget <= 0) {
+      toast.error("Укажите корректный Target ($)");
+      return;
+    }
+    if (!Number.isFinite(nextLimit) || nextLimit <= 0) {
+      toast.error("Укажите корректный Hard Limit ($)");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updatePipelineBudgetAction({
+        id: item.id,
+        targetUsd: nextTarget,
+        limitUsd: nextLimit,
+      });
+
+      if (ownerName && ownerName !== item.ownerName) {
+        await updatePipelineOwnerAction(item.id, ownerName);
+      }
+
+      toast.success(`Настройки для «${item.name}» сохранены`);
+    } catch {
+      toast.error("Не удалось сохранить изменения");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const utilization =
+    item.limitUsd > 0
+      ? Math.min(100, Math.round((item.spendUsd / item.limitUsd) * 100))
+      : 0;
+
   return (
     <Drawer swipeDirection={isMobile ? "down" : "right"}>
       <DrawerTrigger
         render={
           <Button
             variant="link"
-            className="w-fit px-0 text-left text-foreground"
+            className="h-auto w-fit p-0 text-left font-medium text-foreground"
           />
         }
       >
-        {item.header}
+        {item.name}
       </DrawerTrigger>
       <DrawerContent>
         <DrawerHeader className="gap-1">
-          <DrawerTitle>{item.header}</DrawerTitle>
-          <DrawerDescription>
-            Showing total visitors for the last 6 months
+          <DrawerTitle>{item.name}</DrawerTitle>
+          <DrawerDescription className="font-mono text-xs">
+            {item.provider} • {item.environment} • Key: {item.apiKeyPrefix}
           </DrawerDescription>
         </DrawerHeader>
         <div className="flex flex-col gap-4 overflow-y-auto px-4 text-sm">
@@ -752,121 +903,95 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
               </ChartContainer>
               <Separator />
               <div className="grid gap-2">
-                <div className="flex gap-2 leading-none font-medium">
-                  Trending up by 5.2% this month{" "}
-                  <TrendingUpIcon className="size-4" />
+                <div className="flex items-center justify-between font-medium leading-none">
+                  <span>
+                    Текущий расход: ${item.spendUsd.toFixed(2)} ({utilization}%
+                    от лимита)
+                  </span>
+                  <Badge variant="outline">{item.status}</Badge>
                 </div>
                 <div className="text-muted-foreground">
-                  Showing total visitors for the last 6 months. This is just
-                  some random text to test the layout. It spans multiple lines
-                  and should wrap around.
+                  При достижении Hard Limit (${item.limitUsd}) прокси-шлюз
+                  автоматически заблокирует запросы по этому API-ключу.
                 </div>
               </div>
               <Separator />
             </>
           )}
-          <form className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3">
-              <Label htmlFor="header">Header</Label>
-              <Input id="header" defaultValue={item.header} />
-            </div>
+          <form
+            id={`drawer-form-${item.id}`}
+            onSubmit={handleSave}
+            className="flex flex-col gap-4"
+          >
             <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-3">
-                <Label htmlFor="type">Type</Label>
-                <Select
-                  defaultValue={item.type}
-                  items={[
-                    { label: "Table of Contents", value: "Table of Contents" },
-                    { label: "Executive Summary", value: "Executive Summary" },
-                    {
-                      label: "Technical Approach",
-                      value: "Technical Approach",
-                    },
-                    { label: "Design", value: "Design" },
-                    { label: "Capabilities", value: "Capabilities" },
-                    { label: "Focus Documents", value: "Focus Documents" },
-                    { label: "Narrative", value: "Narrative" },
-                    { label: "Cover Page", value: "Cover Page" },
-                  ]}
-                >
-                  <SelectTrigger id="type" className="w-full">
-                    <SelectValue placeholder="Select a type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="Table of Contents">
-                        Table of Contents
-                      </SelectItem>
-                      <SelectItem value="Executive Summary">
-                        Executive Summary
-                      </SelectItem>
-                      <SelectItem value="Technical Approach">
-                        Technical Approach
-                      </SelectItem>
-                      <SelectItem value="Design">Design</SelectItem>
-                      <SelectItem value="Capabilities">Capabilities</SelectItem>
-                      <SelectItem value="Focus Documents">
-                        Focus Documents
-                      </SelectItem>
-                      <SelectItem value="Narrative">Narrative</SelectItem>
-                      <SelectItem value="Cover Page">Cover Page</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`drawer-provider-${item.id}`}>Provider</Label>
+                <Input
+                  id={`drawer-provider-${item.id}`}
+                  value={item.provider}
+                  disabled
+                />
               </div>
-              <div className="flex flex-col gap-3">
-                <Label htmlFor="status">Status</Label>
-                <Select
-                  defaultValue={item.status}
-                  items={[
-                    { label: "Done", value: "Done" },
-                    { label: "In Progress", value: "In Progress" },
-                    { label: "Not Started", value: "Not Started" },
-                  ]}
-                >
-                  <SelectTrigger id="status" className="w-full">
-                    <SelectValue placeholder="Select a status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="Done">Done</SelectItem>
-                      <SelectItem value="In Progress">In Progress</SelectItem>
-                      <SelectItem value="Not Started">Not Started</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`drawer-env-${item.id}`}>Environment</Label>
+                <Input
+                  id={`drawer-env-${item.id}`}
+                  value={item.environment}
+                  disabled
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-3">
-                <Label htmlFor="target">Target</Label>
-                <Input id="target" defaultValue={item.target} />
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`drawer-target-${item.id}`}>
+                  Soft Target ($)
+                </Label>
+                <Input
+                  id={`drawer-target-${item.id}`}
+                  type="number"
+                  min={1}
+                  value={targetUsd}
+                  onChange={(e) => setTargetUsd(e.target.value)}
+                />
               </div>
-              <div className="flex flex-col gap-3">
-                <Label htmlFor="limit">Limit</Label>
-                <Input id="limit" defaultValue={item.limit} />
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`drawer-limit-${item.id}`}>
+                  Hard Limit ($)
+                </Label>
+                <Input
+                  id={`drawer-limit-${item.id}`}
+                  type="number"
+                  min={1}
+                  value={limitUsd}
+                  onChange={(e) => setLimitUsd(e.target.value)}
+                />
               </div>
             </div>
-            <div className="flex flex-col gap-3">
-              <Label htmlFor="reviewer">Reviewer</Label>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`drawer-owner-${item.id}`}>Owner</Label>
               <Select
-                defaultValue={item.reviewer}
-                items={[
-                  { label: "Eddie Lake", value: "Eddie Lake" },
-                  { label: "Jamik Tashpulatov", value: "Jamik Tashpulatov" },
-                  { label: "Emily Whalen", value: "Emily Whalen" },
-                ]}
+                value={ownerName}
+                onValueChange={(value) => {
+                  if (value) setOwnerName(value);
+                }}
+                items={TEAM_MEMBERS.map((member) => ({
+                  label: member,
+                  value: member,
+                }))}
               >
-                <SelectTrigger id="reviewer" className="w-full">
-                  <SelectValue placeholder="Select a reviewer" />
+                <SelectTrigger
+                  id={`drawer-owner-${item.id}`}
+                  className="w-full"
+                >
+                  <SelectValue placeholder="Assign owner" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="Eddie Lake">Eddie Lake</SelectItem>
-                    <SelectItem value="Jamik Tashpulatov">
-                      Jamik Tashpulatov
-                    </SelectItem>
-                    <SelectItem value="Emily Whalen">Emily Whalen</SelectItem>
+                    {TEAM_MEMBERS.map((member) => (
+                      <SelectItem key={member} value={member}>
+                        {member}
+                      </SelectItem>
+                    ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
@@ -874,10 +999,16 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
           </form>
         </div>
         <DrawerFooter>
-          <Button>Submit</Button>
-          <DrawerClose render={<Button variant="outline" />}>Done</DrawerClose>
+          <Button
+            type="submit"
+            form={`drawer-form-${item.id}`}
+            disabled={saving}
+          >
+            {saving ? "Сохраняем..." : "Save Changes"}
+          </Button>
+          <DrawerClose render={<Button variant="outline" />}>Close</DrawerClose>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }

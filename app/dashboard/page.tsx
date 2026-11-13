@@ -1,3 +1,8 @@
+import { Suspense } from "react";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { auth } from "@/shared/auth";
+import { FinOpsRepository } from "@/modules/finops/repository";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChartAreaInteractive } from "@/components/chart-area-interactive";
 import { DataTable } from "@/components/data-table";
@@ -5,13 +10,7 @@ import { SectionCards } from "@/components/section-cards";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
-import data from "./data.json";
-import { auth } from "@/shared/auth";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import { FinOpsRepository } from "@/modules/finops/repository";
-
-export default async function Page() {
+async function DashboardContent() {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -20,7 +19,6 @@ export default async function Page() {
     redirect("/login");
   }
 
-  // Параллельная загрузка метрик из Postgres / Redis
   const [kpis, chartData, pipelines] = await Promise.all([
     FinOpsRepository.getDashboardKpis(session.user.id),
     FinOpsRepository.getChartSeries(session.user.id),
@@ -59,5 +57,19 @@ export default async function Page() {
         </div>
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
+          Загрузка телеметрии FinOps...
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }

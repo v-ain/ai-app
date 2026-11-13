@@ -76,10 +76,10 @@ export function ChartAreaInteractive({ data }: { data: ChartPointDTO[] }) {
         </CardDescription>
         <CardAction>
           <ToggleGroup
-            type="single"
-            value={timeRange}
+            multiple={false}
+            value={timeRange ? [timeRange] : []}
             onValueChange={(value) => {
-              if (value) setTimeRange(value);
+              setTimeRange(value[0] ?? "90d");
             }}
             variant="outline"
             className="hidden *:data-[slot=toggle-group-item]:px-4! @[767px]/card:flex"
@@ -88,7 +88,14 @@ export function ChartAreaInteractive({ data }: { data: ChartPointDTO[] }) {
             <ToggleGroupItem value="30d">Last 30 days</ToggleGroupItem>
             <ToggleGroupItem value="7d">Last 7 days</ToggleGroupItem>
           </ToggleGroup>
-          <Select value={timeRange} onValueChange={setTimeRange}>
+          <Select
+            value={timeRange}
+            onValueChange={(value) => {
+              if (value !== null) {
+                setTimeRange(value);
+              }
+            }}
+          >
             <SelectTrigger
               className="flex w-40 **:data-[slot=select-value]:block **:data-[slot=select-value]:truncate @[767px]/card:hidden"
               size="sm"
